@@ -1,0 +1,58 @@
+name: carshop-python
+
+services:
+  database:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: carshop
+      POSTGRES_PASSWORD: carshop
+      POSTGRES_DB: carshop
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U carshop -d carshop"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  cache:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://carshop:carshop@database:5432/carshop
+      REDIS_URL: redis://cache:6379/0
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-60}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    depends_on:
+      database:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/healthcheck')"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:
