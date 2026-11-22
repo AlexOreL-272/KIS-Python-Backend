@@ -9,9 +9,11 @@ from app.schemas import (
     CarFilters,
     CarID,
     CarList,
+    CarOperationRead,
     CarResponse,
     CarUpdate,
     ErrorResponse,
+    OperationID,
 )
 from app.services.cars import CarService
 
@@ -19,9 +21,19 @@ router = APIRouter(
     prefix="/api/v1/cars",
     tags=["Cars"],
     responses={
-        404: {"model": ErrorResponse, "description": "Car not found"},
-        422: {"model": ErrorResponse, "description": "Validation error"},
-        503: {"model": ErrorResponse, "description": "Database unavailable"},
+        status.HTTP_404_NOT_FOUND: {"model": ErrorResponse, "description": "Car not found"},
+        status.HTTP_409_CONFLICT: {
+            "model": ErrorResponse,
+            "description": "Stock unavailable or database conflict",
+        },
+        status.HTTP_400_BAD_REQUEST: {
+            "model": ErrorResponse,
+            "description": "Validation error",
+        },
+        status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "model": ErrorResponse,
+            "description": "Database unavailable",
+        },
     },
 )
 
@@ -55,3 +67,35 @@ def update_car(car_id: CarID, payload: CarUpdate, service: Service) -> Response:
 def delete_car(car_id: CarID, service: Service) -> Response:
     service.delete(car_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def operation_response(operation: CarOperationRead, response: Response) -> CarOperationRead:
+    response.headers["Location"] = f"/api/v1/cars/{operation.car_id}/operations/{operation.id}"
+    return operation
+
+
+@router.post(
+    "/{car_id}/purchases",
+    response_model=CarOperationRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Buy one car from stock",
+)
+def buy_car(car_id: CarID, response: Response, service: Service) -> CarOperationRead:
+    return operation_response(service.buy(car_id), response)
+
+
+@router.post(
+    "/{car_id}/sales",
+    response_model=CarOperationRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Sell one car into stock",
+)
+def sell_car(car_id: CarID, response: Response, service: Service) -> CarOperationRead:
+    return operation_response(service.sell(car_id), response)
+
+
+@router.get("/{car_id}/operations/{operation_id}", response_model=CarOperationRead)
+def get_car_operation(
+    car_id: CarID, operation_id: OperationID, service: Service
+) -> CarOperationRead:
+    return service.get_operation(car_id, operation_id)

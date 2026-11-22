@@ -2,10 +2,16 @@ from datetime import date
 from decimal import Decimal
 from typing import Annotated, Self
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, model_validator
+
+from app.enums import CarOperationType
 
 MAX_ID = 9_223_372_036_854_775_807
+MAX_STOCK = 2_147_483_647
+
+StockAmount = Annotated[int, Field(ge=0, le=MAX_STOCK)]
 CarID = Annotated[int, Field(gt=0, le=MAX_ID)]
+OperationID = Annotated[int, Field(gt=0, le=MAX_ID)]
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1024)]
 Colour = Annotated[str, StringConstraints(pattern=r"^#[0-9a-fA-F]{6}$")]
 Money = Annotated[Decimal, Field(gt=0, max_digits=10, decimal_places=2, allow_inf_nan=False)]
@@ -52,8 +58,23 @@ class CarCreated(BaseModel):
     id: CarID
 
 
+class CarDetail(CarRead):
+    amount: StockAmount
+
+
 class CarResponse(BaseModel):
-    car: CarRead
+    car: CarDetail
+
+
+class CarOperationRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: OperationID
+    car_id: CarID = Field(description="Historical car ID; the car may have been deleted.")
+    operation_type: CarOperationType
+    amount_before: StockAmount
+    amount_after: StockAmount
+    occurred_at: AwareDatetime
 
 
 class CarList(BaseModel):

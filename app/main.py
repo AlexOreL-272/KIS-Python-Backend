@@ -2,9 +2,10 @@ import logging
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 from uuid import uuid4
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy import Engine, text
@@ -13,7 +14,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from app.api.cars import router
 from app.config import Settings
 from app.database import build_engine, build_session_factory
-from app.errors import CarNotFound
+from app.errors import CarNotFound, CarOperationNotFound, CarOutOfStock, CarStockLimitReached
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,20 @@ def create_app(settings: Settings | None = None, *, engine: Engine | None = None
     )
     application.include_router(router)
 
+    default_openapi = application.openapi
+
+    def custom_openapi() -> dict[str, Any]:
+        schema = default_openapi()
+        # FastAPI adds 422 automatically even with a custom validation handler.
+        for path in schema["paths"].values():
+            for operation in path.values():
+                responses = operation.get("responses", {})
+                if str(status.HTTP_400_BAD_REQUEST) in responses:
+                    responses.pop(str(status.HTTP_422_UNPROCESSABLE_CONTENT), None)
+        return schema
+
+    application.openapi = custom_openapi
+
     @application.middleware("http")
     async def log_request(request: Request, call_next):
         request_id = uuid4().hex
@@ -60,21 +75,34 @@ def create_app(settings: Settings | None = None, *, engine: Engine | None = None
         return response
 
     @application.exception_handler(CarNotFound)
-    async def not_found(_request: Request, exc: CarNotFound):
-        return JSONResponse(status_code=404, content={"error": "not found", "details": [str(exc)]})
+    @application.exception_handler(CarOperationNotFound)
+    async def not_found(_request: Request, exc: CarNotFound | CarOperationNotFound):
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"error": "not found", "details": [str(exc)]},
+        )
+
+    @application.exception_handler(CarOutOfStock)
+    @application.exception_handler(CarStockLimitReached)
+    async def stock_conflict(_request: Request, exc: CarOutOfStock | CarStockLimitReached):
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={"error": "conflict", "details": [str(exc)]},
+        )
 
     @application.exception_handler(RequestValidationError)
     async def validation_error(_request: Request, exc: RequestValidationError):
         details = [f"{'.'.join(map(str, error['loc']))}: {error['msg']}" for error in exc.errors()]
         return JSONResponse(
-            status_code=422, content={"error": "validation error", "details": details}
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"error": "validation error", "details": details},
         )
 
     @application.exception_handler(IntegrityError)
     async def integrity_error(_request: Request, exc: IntegrityError):
         logger.warning("Database rejected a write: %s", type(exc).__name__)
         return JSONResponse(
-            status_code=409,
+            status_code=status.HTTP_409_CONFLICT,
             content={"error": "conflict", "details": ["database constraint failed"]},
         )
 
@@ -82,7 +110,8 @@ def create_app(settings: Settings | None = None, *, engine: Engine | None = None
     async def database_error(_request: Request, exc: SQLAlchemyError):
         logger.error("Database operation failed: %s", type(exc).__name__)
         return JSONResponse(
-            status_code=503, content={"error": "database unavailable", "details": []}
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "database unavailable", "details": []},
         )
 
     @application.get("/api/v1/healthcheck", tags=["System"])
