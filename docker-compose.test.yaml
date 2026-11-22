@@ -1,0 +1,33 @@
+name: carshop-python-tests
+
+services:
+  database:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: carshop
+      POSTGRES_PASSWORD: carshop
+      POSTGRES_DB: carshop_test
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U carshop -d carshop_test"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+
+  cache:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:56379:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+

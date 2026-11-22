@@ -13,7 +13,10 @@ test:
 	uv run --locked pytest --cov=app --cov-report=term-missing
 
 integration:
-	sh scripts/test-integration.sh
+	@set -eu; \
+	trap 'docker compose -f docker-compose.test.yaml down' EXIT; \
+	docker compose -f docker-compose.test.yaml up -d --wait; \
+	uv run --locked pytest --integration tests/integration
 
 check:
 	uv run --locked ruff check .
