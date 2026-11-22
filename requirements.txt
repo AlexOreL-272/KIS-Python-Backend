@@ -35,6 +35,8 @@ pydantic-settings==2.16.3
     # via carshop-backend
 python-dotenv==1.2.4
     # via pydantic-settings
+redis==7.4.1
+    # via carshop-backend
 sqlalchemy==2.0.58
     # via carshop-backend
 starlette==1.10.0

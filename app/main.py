@@ -8,10 +8,13 @@ from uuid import uuid4
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from redis import Redis
+from redis.exceptions import RedisError
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.api.cars import router
+from app.cache import Cache, RedisCache
 from app.config import Settings
 from app.database import build_engine, build_session_factory
 from app.errors import CarNotFound, CarOperationNotFound, CarOutOfStock, CarStockLimitReached
@@ -19,25 +22,41 @@ from app.errors import CarNotFound, CarOperationNotFound, CarOutOfStock, CarStoc
 logger = logging.getLogger(__name__)
 
 
-def create_app(settings: Settings | None = None, *, engine: Engine | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None, *, engine: Engine | None = None, cache: Cache | None = None
+) -> FastAPI:
     settings = settings or Settings()
     logging.basicConfig(level=settings.log_level, format="%(levelname)s %(name)s %(message)s")
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
         db_engine = engine if engine is not None else build_engine(settings)
+        redis_client = None
+        app_cache = cache
+        if app_cache is None:
+            redis_client = Redis.from_url(
+                settings.redis_url,
+                decode_responses=True,
+                socket_connect_timeout=0.2,
+                socket_timeout=0.2,
+            )
+            app_cache = RedisCache(redis_client, settings.cache_ttl_seconds)
+        application.state.cache = app_cache
+        application.state.redis = redis_client
         application.state.session_factory = build_session_factory(db_engine)
         application.state.engine = db_engine
         try:
             yield
         finally:
+            if redis_client is not None:
+                redis_client.close()
             if engine is None:
                 db_engine.dispose()
 
     application = FastAPI(
         title="Carshop Backend",
         version="1.0.0",
-        description="Car catalog management with PostgreSQL.",
+        description="Car catalog management with PostgreSQL and Redis cache-aside.",
         lifespan=lifespan,
         docs_url="/swagger",
         redoc_url="/redoc",
@@ -118,7 +137,15 @@ def create_app(settings: Settings | None = None, *, engine: Engine | None = None
     def healthcheck(request: Request):
         with request.app.state.engine.connect() as connection:
             connection.execute(text("SELECT 1"))
-        return {"status": "ok", "database": "ok", "version": "1.0.0"}
+        redis_client = request.app.state.redis
+        cache_status = "injected"
+        if redis_client is not None:
+            try:
+                redis_client.ping()
+                cache_status = "ok"
+            except RedisError:
+                cache_status = "unavailable"
+        return {"status": "ok", "database": "ok", "cache": cache_status, "version": "1.0.0"}
 
     return application
 

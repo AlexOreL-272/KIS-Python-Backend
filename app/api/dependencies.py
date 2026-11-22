@@ -13,5 +13,7 @@ def get_session(request: Request) -> Iterator[Session]:
         yield session
 
 
-def get_car_service(session: Annotated[Session, Depends(get_session)]) -> CarService:
-    return CarService(SQLCarRepository(session))
+def get_car_service(
+    request: Request, session: Annotated[Session, Depends(get_session)]
+) -> CarService:
+    return CarService(SQLCarRepository(session), request.app.state.cache)
