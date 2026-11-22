@@ -8,7 +8,7 @@ from redis.exceptions import RedisError, WatchError
 
 logger = logging.getLogger(__name__)
 
-CACHE_PREFIX = "carshop:v3"
+CACHE_PREFIX = "carshop:v1"
 LIST_PREFIX = f"{CACHE_PREFIX}:cars"
 CAR_PREFIX = f"{CACHE_PREFIX}:car"
 

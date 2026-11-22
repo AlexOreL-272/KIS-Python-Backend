@@ -35,8 +35,7 @@ services:
       DATABASE_URL: postgresql+psycopg://carshop:carshop@database:5432/carshop
       REDIS_URL: redis://cache:6379/0
       CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-60}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     depends_on:

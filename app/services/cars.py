@@ -48,10 +48,14 @@ class CarService:
             cached = self.cache.get(key)
             if cached is not None:
                 try:
-                    return model.model_validate_json(cached)
+                    cached_response = model.model_validate_json(cached)
                 except ValidationError:
                     logger.warning("Invalid cache entry; reloading from PostgreSQL")
+                else:
+                    logger.debug("Cache hit: key=%s", key)
+                    return cached_response
 
+        logger.debug("Cache miss: key=%s", key)
         result = load()
         self.cache.set(key, result.model_dump_json(), token)
         return result
